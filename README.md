@@ -1,6 +1,6 @@
 # Informant
 
-**TODO: Add description**
+**Beginnings exploring something to replace Hub**
 
 ## Installation
 
