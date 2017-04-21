@@ -1,174 +1,173 @@
 defmodule Informant do
 
   @moduledoc """
-  A system to distribute published state and notifications to local
-  subscribing processes, emphasizing concurrency, performance and proper
-  sequencing.
-  
-  Informant manages a directory of _sources_ of published state and events,
-  and a list of _subscriptions_, created by processes that want to receive
-  notifications about sources.  Subscriptions can include wildcards, matching
-  multiple sources.
-  
+  Distributes notifications about state and events from sources to subscribers.
+
+  Informant manages a directory of _sources_ which publish state and provide
+  events, and a list of _subscriptions_, created by processes that want to
+  receive notifications about matching sources events and changes to state.
+
   Suscribers receive notifications about events and changes to the source's
   published state via messages sent to the subscriber's mailbox, as well as
-  notifications about new sources and exiting sources that match the
-  subscription.
+  notifications about matching sources coming and going.
 
-  # Important Characteristics
+  ## Important Characteristics
 
-  - Subscriptions are independent of sources; subscriptions can come before or
-    after the source is published in the directory.  Wildcards can be used
-    subscribe to multiple sources.
-    
-  - Informant provides a cached key/value store for each source that holds the
-    "published state" for each source.
-  
-  - Allows processes to subscribe one or more sources in the directory, 
-    thereby receiving notifications of changes to that source's published
-    state, as well as any stateless events sent by the source.
-    
-  - Publishing changes to state or sending an event are very light weight
-    and do not block the source process at all, ensuring high performance
-    even in light of heavy notification usage.
-    
-  - Atomicity and correct sequencing of all notifications are preserved,
-    both during subscription and when interspersed with queries of state, due
-    to the use of delegate processes which sequence gets and event sends for
-    each source.
+  - Each published source is managed by a _delegate process_, which caches
+    published state and properly sequences both requests for state and
+    notifications.  This allows performant, concurrent event and state
+    distribution without race conditions.
 
-  - Notifications are sent to subscribers when sources that match a
-    subscription are published, including their published state.
-    
-  - Notifications are also sent when a source process exits (normally or
-    abnormally), so any subscribed state can be considered invalid.
+  - Subscriptions are independent of sources, may contain wildcards to match
+    multiple sources, and can happen before or after the source is published.
 
-  - Each source has a corresponding _delegate_ that manages distributing
-    events and state change notifications for that source and it's 
-    source process.
+  - Subscribers are notified of published sources (and current public state)
+    upon subscription, and of newly matching sources (and initial public state)
+    when those sources are published. Sources also notify their subscribers when
+    they exit.
 
-  TODO is there one informant regsistry, or multiple?
-       multiple, we call them domains, but how do registries get started?
-       what can you subscribe to with wildcards?
-       System, Nerves.NetworkInterface, "eth0", {:ip, _}
-  """
-
-  @type domain :: atom
-  @type topic :: any
-  @type instance :: any
-  @type source :: {domain, topic, instance} | pid
-  @type source_matchspec :: {domain | :_, topic | :_, instance | :_}
-  @type subcriber :: pid
-  @type sourcepid :: pid
-
-  @doc """
-  Publishes a source of information under the keys given in `source`.
-
-  `source` is always formatted as a 3-element tuple {domain, topic, instance}.
+  - Informant optimizes event dispatch. Public state changes and notifications
+    are nonblocking and fast at the expense of more complex subscription and
+    publishing.
 
   ## Examples
 
-      Informant.publish {Nerves.Networking, :settings, :eth0}, 
-                        %{ip: "192.168.15.2", router: "192.168.15.1"}
+  (See tests for now)
 
-  * `:anonymous` - do not assign the current process as the owner of the
-     source.  This means the source entry will not be tied to any entry
-
-  ## Internals 
-
-  Starts a delegate process, registers it under the specified domain and
-  topic, sets up subscribers, and sends initial notifications.
+  Same as Elixir
   """
-  @spec publish(source, Keyword.t) :: {:ok, source} | {:error, reason}
-  def publish(source, opts \\ []) do
-    GenServer.start_link Delegate, {self(), domain, topic, opts}, name: name
-  end
-  def publish(source, opts \\ []) when is_list(opts) do
-    register(domain, pid_to_dynamic_topic(self()), opts)
-  end
 
-do
+  @type domain :: atom
+  @type instance :: any
+  @type topic :: any
+  @type changeset :: map
+  @type source_process :: pid
+  @type key :: any
+  @type reason :: any
+  @type subscription :: {term, term}
+  @type message :: any
+  @type metadata :: any
+  @type delegate :: pid
+  @type subcriber :: pid
+
+  ## Publisher API
 
   @doc """
-  Unpublish the source, terminating its informant, and sending a final
-  notification for each.  Note that if the source terminates, it's
-  informant is terminated automatically.
+  Publishes a source of state and notifications under as the keys given in `source`,
+  returning delegate (process) associate with that source.
+
+  Returns {:ok, delegate_pid}.
+
+  ## Example
+
+      Informant.publish Nerves.Networking, :settings, "eth0"}, %{
+        ip: "192.168.15.2", router: "192.168.15.1", mask: "255.255.255.0"
+      }
+
+  ## Internals
+
+  Starts a delegate process, which registers itself under the specified
+  `source` id in Registry.Informant.Sources, and then notifies existing
+  subscribers
+
   """
-  def unpublish(source) do
+  @spec publish(domain, topic, Keyword.t) :: {:ok, delegate} | {:error, reason}
+  def publish(domain, topic, opts \\ []) do
+    GenServer.start_link Informant.Delegate, {domain, topic, opts, self()}
   end
 
-
   @doc """
-  Send a notification to all processes subscribing to the specified source.
-  By default, this notification comes from the current process.
+  Remove the source from the sources directory by asking its delegate to terminate
+  and sending a final notification.   Generally called by the process that published
+  the source.
   """
-  @spec announce(event) :: :ok
-  def announce(event, source \\ self())
-
-  @spec subscribe(source_matchspec, Keyword.t) :: {:ok, subscribe_info}
-  def subscribe(source_matchspec, options \\ [])
-
-
-  @doc ~S"""
-  Manages distribution of notifications from registered or anonymous sources.
-
-  Updates public state with `updates`, computes and returns changes,
-
-  and then triggers notifications.  Nonblocking/nonpre-emptive.
-
-
-  """
-
-  ## APPLICATION
-
-  def start_link() do
-
+  @spec unpublish(delegate) :: :ok | {:error, reason}
+  def unpublish(delegate) do
+    GenServer.stop delegate
   end
 
   ## Subscription API
 
   @doc """
-  Subscribe the current process to be informed by all current and future
-  published informants that match the specification and filters in
-  subscription.
-
-  # subscribe to everythin from Nerves.NetworkInterface
-  subscribe(Nerves.NetworkInterface, :_, :_)
-
-  # subscribe only to topics coming and going
-  subscribe(Nerves.NetworkInterface, :_, {:topic, _})
+  Add a subscription to notifications from all matching sources (current and future)
   """
-  def subscribe(subscription_matchspec, optioons \\ nil) do
-    Registry.register(@registry, :subscriptions, {subscription, args})
-    for {pid, whatever} <- Registry.match(__MODULE__, :sources) do
-      GenServer.cast pid, {:subscribe, self(), {subscription, args}}
+
+  @spec subscribe(domain, subscription, Keyword.t) :: {:ok, term}
+  def subscribe(domain, subscription, options \\ []) do
+    Registry.register(domain, :subscriptions, {subscription, options})
+    for {delegate, source_data} <- Registry.match(__MODULE__, :sources) do
+      GenServer.cast delegate, {:subscribe, self(), {subscription, options, source_data}}
     end
   end
 
-  ## Publisher API
-
-    GenServer.stop(informant)
-  end
-
-  ##
-  ## Source Event API
+  ## Notification and Update API
 
   @doc """
-  Send a notification to all listeners for this informant
+  Send a `message` to the mailbox of all processes that subscribe to the
+  specified `source`.  This arrives as {:inform, message} to subscribers.
+
+  `source`, can either be a source_spec or a delegate_pid.
+  The notification will always be sent from the process of the delegate.
   """
-  @spec announce(informant, event) :: :ok
-  def announce(informant, event) do
-    GenServer.cast(informant, {:announce, event})
+  @spec inform(delegate, message) :: :ok
+  def inform(delegate, message) do
+    GenServer.cast delegate, {:do_inform, message}
   end
 
-  ## Source Data API (NYI)
+  @doc """
+  Updates public state for `delegate`, merging `changeset` into the
+  delegate's public state cache.   The resulting changes are sent as
+  a notification, along with metadata, to subscribers, in a message of
+  the form:
 
-  def update(informant, changes) do
-    GenServer.call(informant, {:update, changes})
+    {:inform, {:update, changeset, metadata}}
+
+  The notification will always be sent from the process of the delegate.
+  """
+  @spec update(delegate, changeset, metadata) :: :ok | {:error, reason}
+  def update(delegate, changeset, metadata) do
+    GenServer.cast delegate, {:do_update, changeset, metadata}
   end
 
-  def get(informant) do
-    GenServer.call(informant, :get, :key)
+  @doc """
+  Similar to `update/3`, but blocks and returns the changeset computed by the delegate.
+
+  Returns {:ok, changeset} or {:error, reason}
+  """
+  @spec update(delegate, changeset, metadata) :: {:ok, changeset} | {:error, reason}
+  def sync_update(delegate, changeset, metadata) do
+    GenServer.call delegate, {:do_update, changeset, metadata}
+  end
+
+  @doc """
+  Return all keys/values from the delegate's public state, as a single map.
+
+  This is propery sequenced so that if called from a subscriber, the response
+  will arrive in the correct sequence with event notifications, avoiding race
+  conditions.
+  """
+  @spec get(delegate) :: map | {:error, reason}
+  def get(delegate) do
+    GenServer.call(delegate, :get)
+  end
+
+  @doc """
+  Return the value of a single key from the delegate's public state.
+  """
+  @spec get(delegate, key) :: map | {:error, reason}
+  def get(delegate, key) do
+    GenServer.call(delegate, {:get, key})
+  end
+
+  @doc """
+  Return a delegate if one exists for this domain and topic.
+  """
+  @spec delegate(domain, topic) :: delegate | {:error, :notfound}
+  def delegate(domain, topic) do
+    case Registry.lookup domain, topic do
+      [] -> {:error, :notfound}
+      [{delegate, _topic}] -> delegate
+    end
   end
 
 end
