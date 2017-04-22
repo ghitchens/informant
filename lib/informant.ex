@@ -49,6 +49,13 @@ defmodule Informant do
   @type delegate :: pid
   @type subcriber :: pid
 
+  alias Informant.Domain
+  alias Informant.Delegate
+
+  def start_link(domain) do
+    Domain.start_link(domain)
+  end
+
   ## Publisher API
 
   @doc """
@@ -72,7 +79,7 @@ defmodule Informant do
   """
   @spec publish(domain, topic, Keyword.t) :: {:ok, delegate} | {:error, reason}
   def publish(domain, topic, opts \\ []) do
-    GenServer.start_link Informant.Delegate, {domain, topic, opts, self()}
+    GenServer.start_link Delegate, {domain, topic, opts, self()}
   end
 
   @doc """
@@ -88,15 +95,23 @@ defmodule Informant do
   ## Subscription API
 
   @doc """
-  Add a subscription to notifications from all matching sources (current and future)
+  Add a subscription to notifications from all matching sources (current and
+  future).
   """
-
   @spec subscribe(domain, subscription, Keyword.t) :: {:ok, term}
   def subscribe(domain, subscription, options \\ []) do
-    Registry.register(domain, :subscriptions, {subscription, options})
-    for {delegate, source_data} <- Registry.match(__MODULE__, :sources) do
+    Domain.subscribe(domain, subscription, options)
+    for {delegate, source_data} <- Domain.topics_matching_subscription(domain, subscription) do
       GenServer.cast delegate, {:subscribe, self(), {subscription, options, source_data}}
     end
+  end
+
+  @doc """
+  Add a subscription to notifications from all matching sources (current and future)
+  """
+  @spec unsubscribe(domain, subscription) :: {:ok, term}
+  def unsubscribe(domain, subscription) do
+    Domain.unsubscribe(domain, subscription)
   end
 
   ## Notification and Update API
@@ -168,5 +183,4 @@ defmodule Informant do
       [{delegate, _topic}] -> delegate
     end
   end
-
 end

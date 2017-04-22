@@ -1,6 +1,7 @@
 defmodule Informant.Delegate do
 
   @moduledoc false
+  alias Informant.Domain
 
   defmodule State, do: defstruct(
     subscribers: %{},
@@ -18,19 +19,16 @@ defmodule Informant.Delegate do
   ## Server Callbacks
 
   def init({domain, topic, options, source_pid}) do
+    Domain.register_topic(domain, topic)
     Process.flag(:trap_exit, true)
-    Registry.register(registry_for(domain), :sources, {topic, source_pid})
-    subscribers = Informant.subscriptions_matching(domain, topic)
     GenServer.cast self(), {:announce, {:init, topic}}
-    state = %State{
+    {:ok, %State{
       pubstate: options[:pubstate] || %{},
       source_pid: source_pid,
       topic: topic,
       domain: domain,
-      subscribers: subscribers,
-      options: options
-    }
-    {:ok, state}
+      subscribers: Domain.subscriptions_matching_topic(domain, topic),
+      options: options}}
   end
 
   def handle_cast({:do_inform, message}, state) do
@@ -48,7 +46,6 @@ defmodule Informant.Delegate do
     {:noreply, state}
   end
 
-
   ## Helpers
 
   # NYI BUG Bad implementation doesn't really compute actual changes yet
@@ -62,10 +59,6 @@ defmodule Informant.Delegate do
     for {pid, opts} <- state.subscribers do
       send(pid, {:notify, message, opts}) # TODO proper opts?
     end
-  end
-
-  defp registry_for(domain) do
-    Module.concat(Registry.Informant, domain)
   end
 
 end
