@@ -196,4 +196,26 @@ defmodule InformantTest do
 
   end
 
+  test "sources remove associated topics when they die" do
+
+    Informant.start_link(DieTest)
+    Informant.subscribe(DieTest, {:config, :_}) # wildcard subscribe
+
+    refute_receive {:informant, DieTest, {:config, _}, {:join, _, :_}, _}
+
+    _die_pid = spawn fn() ->
+      {:ok, _eth0} = Informant.publish(DieTest, {:config, "eth0"}, state: @ipv4_state0)
+      :timer.sleep(100)
+    end
+
+    assert_receive {:informant, DieTest, {:config, _}, {:join, _, :published}, _}
+    #
+    # Process.exit(die_pid, :quit)
+    :timer.sleep(300)
+
+    #assert_receive {:informant, DieTest, {:config, _}, {:join, _, :published}, _}
+
+    # TODO implement this test properly
+  end
+
 end

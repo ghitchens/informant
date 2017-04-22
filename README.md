@@ -1,27 +1,29 @@
 # Informant
 
-A concurrent event and state distribution system.
+A system to distribute notifications of state changes and events.
 
-Distributes notifications about state and events from sources to subscribers.
-
-Informant manages a directory of _sources_ which publish state and provide
-events, and a list of _subscriptions_, created by processes that want to
-receive notifications about matching topics, and the events and changes to state of their associated sources.
+Informant allows processes that want to provide public state (sources) to publish that state and associated events, organized as topics.  Other processes can then add a subscription to one or more topics, including wildcard subscriptions, thereby getting notified of state changes, events, and other metadata about the matching topics.
 
 Subscribers receive notifications about events and changes to the source's
 published state via messages sent to the subscriber's mailbox, as well as
-notifications about matching sources coming and going.
+notifications about matching topics coming and going.
+
+All subscribers are notified of topics that match their subscription including initial state, as well as new processes that join, and processes that exit.
+
+Informant manages one or more _topics_, organized into _domains_.  Processes
+which are sources for events can publish one more of these topics on a domain.
+
 
 ## Terminology
 
-  **Sources** are processes that publish topics.  Any given topic can be
-  published by only one source (for now, todo for anonymous sources below).
-  For instance, `Nerves.NetworkInterface` might have a single process per
-  interface -- those processes would be sources.
+  **Source** :: a processes that announces state or sources events by publishing one or more _topics_.
 
-  **Topics** consist of 2-tuples, each of which can be subscribed to with a
-  wildcard.   A single source can publish more than one topic, but only
-  one source can exist per topic, (caveat in TODO).
+  **Topics** :: a key that can be subscribed or published. Consist of 2-tuples, each of which can be subscribed to with a wildcard.   A single source can publish more than one topic, but only one source can exist per topic, (caveat in TODO).
+
+  **Domains** :: an Atom that organizes a list of topics, separating the
+  namespace.  
+
+  **Subscription** :: An expressed interest in one or more topics. Subscribers receive notifications for topics they that match their subscription.
 
 ## Important Characteristics
 
@@ -42,10 +44,10 @@ notifications about matching sources coming and going.
   are nonblocking and fast at the expense of more complex subscription and
   publishing.
 
-## Informant Notifications
+## Message Format
 
-All notifications from informant are delivered to subscriber's mailbox from the
-delegate process, as a 4-tuple of the form:
+All messages from informant are delivered to subscriber's mailbox from the
+delegate process, as a 5-tuple of the form:
 
 ```elixir
 {:informant, domain, topic, notification, subscription_data}
@@ -53,7 +55,7 @@ delegate process, as a 4-tuple of the form:
 
 `subscription_data` is any term passed from the subscriber via the `data:` option during subscription.  
 
-`notifications` is one of:
+### Notification Types
 
 ```elixir
 {:join, state, status(:published | :subscribed)}
