@@ -41,6 +41,10 @@ defmodule Informant.Delegate do
     notify state.subscribers, {:changes, changes, metadata}
     {:noreply, %{state | pubstate: new_pubstate}}
   end
+  def handle_cast({:subscribe, subscriber, data}, state) do
+    notify [subscriber], {:subscribed, state.topic, data}
+    {:noreply, %{state | subscribers: state.subscribers ++ [subscriber]}}
+  end
 
   def handle_call({:update, changeset, metadata}, _from, state) do
     {new_pubstate, changes} = apply_changeset(state.pubstate, changeset)
