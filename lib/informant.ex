@@ -40,6 +40,7 @@ defmodule Informant do
   @type instance :: any
   @type topic :: any
   @type changeset :: map
+  @type pubstate :: map
   @type source_process :: pid
   @type key :: any
   @type reason :: any
@@ -125,7 +126,7 @@ defmodule Informant do
   """
   @spec inform(delegate, message) :: :ok
   def inform(delegate, message) do
-    GenServer.cast delegate, {:do_inform, message}
+    GenServer.cast delegate, {:inform, message}
   end
 
   @doc """
@@ -140,17 +141,17 @@ defmodule Informant do
   """
   @spec update(delegate, changeset, metadata) :: :ok | {:error, reason}
   def update(delegate, changeset, metadata) do
-    GenServer.cast delegate, {:do_update, changeset, metadata}
+    GenServer.cast delegate, {:update, changeset, metadata}
   end
 
   @doc """
   Similar to `update/3`, but blocks and returns the changeset computed by the delegate.
 
-  Returns {:ok, changeset} or {:error, reason}
+  Returns {:changes, changeset, newstate} or {:error, reason}
   """
-  @spec update(delegate, changeset, metadata) :: {:ok, changeset} | {:error, reason}
+  @spec update(delegate, changeset, metadata) :: {:changes, changeset, pubstate} | {:error, reason}
   def sync_update(delegate, changeset, metadata) do
-    GenServer.call delegate, {:do_update, changeset, metadata}
+    GenServer.call delegate, {:update, changeset, metadata}
   end
 
   @doc """

@@ -21,28 +21,35 @@ defmodule Informant.Delegate do
   def init({domain, topic, options, source_pid}) do
     Domain.register_topic(domain, topic)
     Process.flag(:trap_exit, true)
-    GenServer.cast self(), {:announce, {:init, topic}}
+    subscribers = Domain.subscriptions_matching_topic(domain, topic)
+    notify(subscribers, {:init, domain, topic, self()})
     {:ok, %State{
       pubstate: options[:pubstate] || %{},
       source_pid: source_pid,
       topic: topic,
       domain: domain,
-      subscribers: Domain.subscriptions_matching_topic(domain, topic),
+      subscribers: subscribers,
       options: options}}
   end
 
-  def handle_cast({:do_inform, message}, state) do
-    notify_subscribers(message, state)
+  def handle_cast({:inform, message}, state) do
+    notify state.subscribers, message
     {:noreply, state}
   end
-  def handle_cast({:do_update, changeset, metadata}, state) do
+  def handle_cast({:update, changeset, metadata}, state) do
     {new_pubstate, changes} = apply_changeset(state.pubstate, changeset)
-    notify_subscribers({:changes, changes, metadata}, state)
+    notify state.subscribers, {:changes, changes, metadata}
     {:noreply, %{state | pubstate: new_pubstate}}
   end
 
-  def handle_info({:EXIT, _pid, _reason}, state) do
-    notify_subscribers(:exit, state)
+  def handle_call({:update, changeset, metadata}, _from, state) do
+    {new_pubstate, changes} = apply_changeset(state.pubstate, changeset)
+    notify state.subscribers, {:changes, changes, metadata}
+    {:reply, {:changes, changes, new_pubstate}, %{state | pubstate: new_pubstate}}
+  end
+
+  def handle_info({:EXIT, pid, reason}, state) do
+    notify state.subscribers, {:exit, pid, reason}
     {:noreply, state}
   end
 
@@ -55,8 +62,8 @@ defmodule Informant.Delegate do
     {newstate, changeset}
   end
 
-  defp notify_subscribers(message, state) do
-    for {pid, opts} <- state.subscribers do
+  defp notify(subscribers, message) do
+    for {pid, opts} <- subscribers do
       send(pid, {:notify, message, opts}) # TODO proper opts?
     end
   end
