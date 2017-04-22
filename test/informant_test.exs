@@ -106,68 +106,94 @@ defmodule InformantTest do
     assert_receive {:informant, Networking, {:config, "eth0"}, {:changes, %{ipv4_dns2: "4.4.8.8"}, _}, _}
   end
 
+  test "wildcard subscriptions" do
+    {:ok, _} = Informant.start_link(Networking)
 
-  #   }, :ipv4_address) == nil
-  #   assert Informant.find({:net, "eth0", :ipv4_address}) == []
-  #
-  #   assert Informant.update({:net, "eth0", :ipv4_address}, "127.0.0.1") == :ok
-  #   assert Informant.get({:net, "eth0", :ipv4_address}) == "127.0.0.1"
-  #   assert Informant.find({:net, "eth0", :ipv4_address}) == [{{:net, "eth0", :ipv4_address}, "127.0.0.1"}]
-  # end
-  #
-  # test "update and get work with multiple items" do
-  #   {:ok, _} = Informant.start_link()
-  #   assert Informant.update({:net, "eth0", :ipv4_address}, "127.0.0.1") == :ok
-  #   assert Informant.update({:net, "wlan0", :ipv4_address}, "127.0.0.1") == :ok
-  #   assert Informant.update({:net, "wlan0", :something_else}, 4) == :ok
-  #
-  #   # Get all IPv4 addresses
-  #   assert Informant.find({:net, :_, :ipv4_address}) ==
-  #     [{{:net, "eth0", :ipv4_address}, "127.0.0.1"}, {{:net, "wlan0", :ipv4_address}, "127.0.0.1"}]
-  # end
-  #
-  # test "notification when register" do
-  #   {:ok, _} = Informant.start_link()
-  #
-  #   # Set the IP address
-  #   assert Informant.update({:net, "eth0", :ipv4_address}, "127.0.0.1") == :ok
-  #
-  #   # Someone comes in a registers after the interface is configured
-  #   # to get all eth0 IP address changes
-  #   assert Informant.register({:net, "eth0", :ipv4_address})
-  #
-  #   # Make sure that we get a notification
-  #   assert_receive [{{:net, "eth0", :ipv4_address}, "127.0.0.1"}]
-  # end
+    # Register for all IP adapter configuration changes
+    Informant.subscribe(Networking, {:config, :_})
 
-  # test "wildcard notifications" do
-  #   {:ok, _} = Informant.start_link()
-  #
-  #   # Register for all IP address changes
-  #   assert Informant.register({:net, :_, :ipv4_address})
-  #
-  #   # Check that we get updates for wlan0
-  #   assert Informant.update({:net, "wlan0", :ipv4_address}, "127.0.0.4") == :ok
-  #   assert_receive [{{:net, "wlan0", :ipv4_address}, "127.0.0.4"}]
-  #
-  #   # Check that we get updates for eth0
-  #   assert Informant.update({:net, "eth0", :ipv4_address}, "127.0.0.5") == :ok
-  #   assert_receive [{{:net, "eth0", :ipv4_address}, "127.0.0.5"}]
-  # end
-  #
-  # test "batch wildcard notification on init" do
-  #   {:ok, _} = Informant.start_link()
-  #
-  #   # IP address notifications go out before register is called
-  #   assert Informant.update({:net, "wlan0", :ipv4_address}, "127.0.0.6") == :ok
-  #   assert Informant.update({:net, "eth0", :ipv4_address}, "127.0.0.7") == :ok
-  #
-  #   # Register for all IP address changes
-  #   assert Informant.register({:net, :_, :ipv4_address})
-  #
-  #   # Get two notifications (order not guaranteed except for this test)
-  #   assert_receive [{{:net, "eth0", :ipv4_address}, "127.0.0.7"},
-  #                   {{:net, "wlan0", :ipv4_address}, "127.0.0.6"}]
-  # end
+    # Check that we can tell when wlan0 comes online
+    {:ok, wlan0} = Informant.publish(Networking, {:config, "wlan0"}, state: @ipv4_state0)
+
+    # See that we got the notification due to wildcard subscription
+    assert_receive {:informant, Networking, {:config, "wlan0"}, {:join, _, :published}, _}
+
+    # Now make sure we see when eth0 comes online
+    {:ok, _} = Informant.publish(Networking, {:config, "eth0"}, state: @ipv4_state0)
+    assert_receive {:informant, Networking, {:config, "eth0"}, {:join, _, :published}, _}
+
+    # Check that we get updates for wlan0 due to wildcard subscribe
+    assert Informant.update(wlan0, %{ipv4_dns2: "4.4.4.4"})
+    assert_receive {:informant, Networking, {:config, "wlan0"}, {:changes, %{ipv4_dns2: "4.4.4.4"}, _}, _}
+  end
+
+  test "can subscribe to wildcard topics before they are published" do
+    assert{:ok, _} = Informant.start_link(Networking)
+
+    # Now, add a subscriber, we shouldn't receive anything as no topic is matched
+    assert {:ok, _} = Informant.subscribe(Networking, {:_, "eth1"})
+    refute_receive _
+
+    # Now publish two topics that match our subscriber and one that doesnt
+    # and make sure we are notified of the proper two
+    assert {:ok, _} = Informant.publish(Networking, {:config, "eth1"})
+    assert {:ok, _} = Informant.publish(Networking, {:stats, "eth1"})
+    assert {:ok, _} = Informant.publish(Networking, {:config, "eth0"})
+
+    # Should get two join notifications for eth1 but none for eth0
+    assert_receive {:informant, Networking, {:config, "eth1"}, {:join, _, :published}, _}
+    assert_receive {:informant, Networking, {:stats, "eth1"}, {:join, _, :published}, _}
+    refute_receive {:informant, Networking, {:config, "eth0"}, {:join, _, :_}, _}
+  end
+
+  test "subscribe to wildcard topics after publishing and receive proper events" do
+    assert{:ok, _} = Informant.start_link(Networking)
+    assert {:ok, config_eth0} = Informant.publish(Networking, {:config, "eth0"})
+    assert {:ok, config_eth1} = Informant.publish(Networking, {:config, "eth1"})
+    assert {:ok, _stats_eth1} = Informant.publish(Networking, {:stats, "eth1"})
+
+    # Now, add a subscriber (also this process)
+    assert {:ok, _} = Informant.subscribe(Networking, {:_, "eth1"})
+
+    # Should get two join notifications for eth1 but none for eth0
+    assert_receive {:informant, Networking, {:config, "eth1"}, {:join, _, :subscribed}, _}
+    assert_receive {:informant, Networking, {:stats, "eth1"}, {:join, _, :subscribed}, _}
+    refute_receive {:informant, Networking, {:config, "eth0"}, {:join, _, :subscribed}, _}
+
+    # make some state change to subscribed eth0 which we're not subsribed to
+    assert :ok = Informant.update(config_eth0, %{ipv4_dns2: "4.4.4.4"})
+    assert :ok = Informant.update(config_eth1, %{ipv4_dns2: "4.3.2.1"})
+
+    # make sure we got a notification of the state change for eth1 but not eth0
+    refute_receive {:informant, Networking, {:config, "eth0"}, {:changes, %{ipv4_dns2: "4.4.4.4"}, _}, _}
+    assert_receive {:informant, Networking, {:config, "eth1"}, {:changes, %{ipv4_dns2: "4.3.2.1"}, _}, _}
+
+    # now subscibe to the topic {:stats, :_}
+    assert {:ok, _} = Informant.subscribe(Networking, {:stats, :_})
+
+    # make sure that we don't get join notification since we already joined
+    # under a different subscription
+    refute_receive {:informant, Networking, {:stats, _}, {:join, _, _}, _}
+  end
+
+  test "can find topics in registry and associated state" do
+    # Start a test domain
+    assert{:ok, _} = Informant.start_link(Networking)
+
+    # Now publish 2 topics with current process as source
+    assert {:ok, _eth0} = Informant.publish(Networking, {:config, "eth0"}, state: @ipv4_state0)
+    assert {:ok, _wlan0} = Informant.publish(Networking, {:config, "wlan0"}, state: @ipv4_state0)
+
+    # A lookup of an exact term should return one item
+    assert Informant.lookup(Networking, {:config, "wlan0"}) == [
+      {{:config, "wlan0"}, @ipv4_state0}
+    ]
+
+    # A wildcard lookup should return both in no particular order
+    # REVIEW this assumes order and test is too fragile
+    assert Informant.lookup(Networking, {:config, :_}) == [
+       {{:config, "eth0"}, @ipv4_state0}, {{:config, "wlan0"}, @ipv4_state0} ]
+
+  end
 
 end

@@ -48,12 +48,13 @@ defmodule Informant.Domain do
     Registry.match(registry(domain), Informant.Topics, subscription)
   end
 
-  @doc "Return list of {pid, subscription} tuples that match the given topic"
+  @doc "Return map of %{pid: subscription} that match the given topic"
   @spec subscriptions_matching_topic(domain, topic) :: [{pid, subscription}]
   def subscriptions_matching_topic(domain, {a, b}) do
     r = registry(domain)
     ( Registry.lookup(r, {a, b}) ++ Registry.lookup(r, {a, :_}) ++
       Registry.lookup(r, {:_, b}) ++ Registry.lookup(r, {:_, :_}) )
+    |> Map.new
   end
 
   # internal helpers

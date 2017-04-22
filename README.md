@@ -103,3 +103,5 @@ somehow as part of bringing up the network infrastructure?
 
 - [ ] lookup_topic and topics_matching_subscription are slow and need
       proper indexing or table structure
+
+- [ ] review proper sequencing of subscribe/unsubscribe messages

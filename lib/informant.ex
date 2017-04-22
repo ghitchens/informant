@@ -142,6 +142,17 @@ defmodule Informant do
   end
 
   @doc """
+  Return a list of topics and their associated state, allowing wildcards
+  in the topic lookup.
+  REVIEW: parallelism might help here since we could make multiple calls
+  """
+  @spec lookup(domain, topic) :: [{topic, pubstate}]
+  def lookup(domain, topic) do
+    topics = Domain.topics_matching_subscription(domain, topic)
+    Enum.map(topics, fn({pid, topic}) -> {topic, state(pid)} end)
+  end
+
+  @doc """
   Return the value of a single key from the delegate's public state.
   """
   @spec get(delegate, key) :: map | {:error, reason}

@@ -41,6 +41,7 @@ defmodule Informant.Delegate do
     notify state.domain, state.topic, state.subscribers, message
     {:noreply, state}
   end
+
   def handle_cast({:update, changeset, metadata}, state) do
     case apply_changeset(state.pubstate, changeset) do
       {changes, _} when changes == %{} ->
@@ -51,11 +52,14 @@ defmodule Informant.Delegate do
         {:noreply, %{state | pubstate: new_pubstate}}
     end
   end
+
   def handle_cast({:subscribe, subscriber, subargs}, state) do
-    notify(state.domain, state.topic, [{subscriber, subargs}],
-          {:join, state.pubstate, :subscribed})
-    subscribers = state.subscribers ++ [{subscriber, subargs}]
-    {:noreply, %{state | subscribers: subscribers}}
+    if Map.has_key?(state.subscribers, subscriber) do
+      {:noreply, state}
+    else
+      notify(state.domain, state.topic, [{subscriber, subargs}], {:join, state.pubstate, :subscribed})
+      {:noreply, %{state | subscribers: Map.put(state.subscribers, subscriber, subargs)}}
+    end
   end
 
   def handle_call({:update, changeset, metadata}, _from, state) do
