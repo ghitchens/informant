@@ -32,13 +32,13 @@ defmodule Informant.Domain do
   end
 
   @doc "Given a topic, return {pid, topic}"
-  @spec lookup_topic(domain, topic) :: {pid, topic}
-  def lookup_topic(domain, topic) do
+  @spec delegate_for_topic(domain, topic) :: pid | {:error, :notfound}
+  def delegate_for_topic(domain, topic) do
     # REVIEW: Horrible implementation, needs better plan than Registry.match
     #         on the topic, since that's a linear search
     case Registry.match(registry(domain), Informant.Topics, topic) do
       [] -> {:error, :notfound}
-      [{delegate, ^topic}] -> {delegate, topic}
+      [{delegate, ^topic}] -> delegate
     end
   end
 

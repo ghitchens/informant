@@ -22,9 +22,10 @@ defmodule Informant.Delegate do
     Domain.register_topic(domain, topic)
     Process.flag(:trap_exit, true)
     subscribers = Domain.subscriptions_matching_topic(domain, topic)
-    notify(subscribers, {:init, domain, topic, self()})
+    pubstate = options[:state] || %{}
+    notify(domain, topic, subscribers, {:join, pubstate, :published})
     {:ok, %State{
-      pubstate: options[:pubstate] || %{},
+      pubstate: pubstate,
       source_pid: source_pid,
       topic: topic,
       domain: domain,
@@ -37,7 +38,7 @@ defmodule Informant.Delegate do
   end
 
   def handle_cast({:inform, message}, state) do
-    notify state.subscribers, message
+    notify state.domain, state.topic, state.subscribers, message
     {:noreply, state}
   end
   def handle_cast({:update, changeset, metadata}, state) do
@@ -45,13 +46,16 @@ defmodule Informant.Delegate do
       {changes, _} when changes == %{} ->
         {:noreply, state}
       {changes, new_pubstate} ->
-        notify state.subscribers, {:changes, changes, metadata}
+        notify(state.domain, state.topic, state.subscribers,
+          {:changes, changes, metadata})
         {:noreply, %{state | pubstate: new_pubstate}}
     end
   end
-  def handle_cast({:subscribe, subscriber, data}, state) do
-    notify [subscriber], {:subscribed, state.topic, data}
-    {:noreply, %{state | subscribers: state.subscribers ++ [subscriber]}}
+  def handle_cast({:subscribe, subscriber, subargs}, state) do
+    notify(state.domain, state.topic, [{subscriber, subargs}],
+          {:join, state.pubstate, :subscribed})
+    subscribers = state.subscribers ++ [{subscriber, subargs}]
+    {:noreply, %{state | subscribers: subscribers}}
   end
 
   def handle_call({:update, changeset, metadata}, _from, state) do
@@ -59,13 +63,16 @@ defmodule Informant.Delegate do
       {changes, _} when changes == %{} ->
         {:reply, :nochanges}
       {changes, new_pubstate} ->
-        notify state.subscribers, {:changes, changes, metadata}
+        notify(state.domain, state.topic, state.subscribers, {:changes, changes, metadata})
         {:reply, {:changes, changes, new_pubstate}, %{state | pubstate: new_pubstate}}
     end
   end
+  def handle_call(:state, _from, state) do
+    {:reply, state.pubstate, state}
+  end
 
   def handle_info({:EXIT, pid, reason}, state) do
-    notify state.subscribers, {:exit, pid, reason}
+    notify(state.domain, state.topic, state.subscribers, {:exit, pid, reason})
     {:noreply, state}
   end
 
@@ -79,9 +86,9 @@ defmodule Informant.Delegate do
     {changed, Map.merge(map, changed)}
   end
 
-  defp notify(subscribers, message) do
-    for {pid, opts} <- subscribers do
-      send(pid, {:notify, message, opts}) # TODO proper opts?
+  defp notify(domain, topic, subscribers, message) do
+    for {pid, subscriber_args} <- subscribers do
+      send(pid, {:informant, domain, topic, message, subscriber_args})
     end
   end
 

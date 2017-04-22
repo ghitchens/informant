@@ -3,42 +3,8 @@ defmodule Informant do
   @moduledoc """
   Distributes notifications about state and events from sources to subscribers.
 
-  Informant manages a directory of _sources_ which publish state and provide
-  events, and a list of _subscriptions_, created by processes that want to
-  receive notifications about matching sources events and changes to state.
-
-  Suscribers receive notifications about events and changes to the source's
-  published state via messages sent to the subscriber's mailbox, as well as
-  notifications about matching sources coming and going.
-
-  ## Important Characteristics
-
-  - Each published source is managed by a _delegate process_, which caches
-    published state and properly sequences both requests for state and
-    notifications.  This allows performant, concurrent event and state
-    distribution without race conditions.
-
-  - Subscriptions are independent of sources, may contain wildcards to match
-    multiple sources, and can happen before or after the source is published.
-
-  - Subscribers are notified of published sources (and current public state)
-    upon subscription, and of newly matching sources (and initial public state)
-    when those sources are published. Sources also notify their subscribers when
-    they exit.
-
-  - Informant optimizes event dispatch. Public state changes and notifications
-    are nonblocking and fast at the expense of more complex subscription and
-    publishing.
-
-  ## Concepts
-
-
-
-  ## Examples
-
-  (See tests for now)
-
-"""
+  See the README for more information for now.
+  """
 
   @type domain :: atom
   @type instance :: any
@@ -98,8 +64,8 @@ defmodule Informant do
   def subscribe(domain, subscription, options \\ []) do
     case Domain.subscribe(domain, subscription, options) do
       {:ok, pid} ->
-        for {delegate, source_data} <- Domain.topics_matching_subscription(domain, subscription) do
-          GenServer.cast delegate, {:subscribe, self(), {subscription, options, source_data}}
+        for {delegate, _} <- Domain.topics_matching_subscription(domain, subscription) do
+          GenServer.cast delegate, {:subscribe, self(), options[:subargs]}
         end
         {:ok, pid}
       other -> other
@@ -160,9 +126,19 @@ defmodule Informant do
   will arrive in the correct sequence with event notifications, avoiding race
   conditions.
   """
-  @spec get(delegate) :: map | {:error, reason}
-  def get(delegate) do
-    GenServer.call(delegate, :get)
+  @spec state(delegate) :: map | {:error, reason}
+  def state(delegate) when is_pid(delegate) do
+    GenServer.call(delegate, :state)
+  end
+
+  @doc """
+  Return all keys/values from a topic's state, as a single map.
+
+  See also state/1.
+  """
+  def state(domain, topic) when is_atom(domain) do
+    Domain.delegate_for_topic(domain, topic)
+    |> state()
   end
 
   @doc """
