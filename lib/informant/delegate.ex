@@ -32,14 +32,22 @@ defmodule Informant.Delegate do
       options: options}}
   end
 
+  def terminate(_reason, _state) do
+    :ok
+  end
+
   def handle_cast({:inform, message}, state) do
     notify state.subscribers, message
     {:noreply, state}
   end
   def handle_cast({:update, changeset, metadata}, state) do
-    {new_pubstate, changes} = apply_changeset(state.pubstate, changeset)
-    notify state.subscribers, {:changes, changes, metadata}
-    {:noreply, %{state | pubstate: new_pubstate}}
+    case apply_changeset(state.pubstate, changeset) do
+      {changes, _} when changes == %{} ->
+        {:noreply, state}
+      {changes, new_pubstate} ->
+        notify state.subscribers, {:changes, changes, metadata}
+        {:noreply, %{state | pubstate: new_pubstate}}
+    end
   end
   def handle_cast({:subscribe, subscriber, data}, state) do
     notify [subscriber], {:subscribed, state.topic, data}
@@ -47,9 +55,13 @@ defmodule Informant.Delegate do
   end
 
   def handle_call({:update, changeset, metadata}, _from, state) do
-    {new_pubstate, changes} = apply_changeset(state.pubstate, changeset)
-    notify state.subscribers, {:changes, changes, metadata}
-    {:reply, {:changes, changes, new_pubstate}, %{state | pubstate: new_pubstate}}
+    case apply_changeset(state.pubstate, changeset) do
+      {changes, _} when changes == %{} ->
+        {:reply, :nochanges}
+      {changes, new_pubstate} ->
+        notify state.subscribers, {:changes, changes, metadata}
+        {:reply, {:changes, changes, new_pubstate}, %{state | pubstate: new_pubstate}}
+    end
   end
 
   def handle_info({:EXIT, pid, reason}, state) do
@@ -59,11 +71,12 @@ defmodule Informant.Delegate do
 
   ## Helpers
 
-  # NYI BUG Bad implementation doesn't really compute actual changes yet
+  # Determine which changes in `requested` changes are actually changes
+  # to the given map, return {changed, newmap}.
   @spec apply_changeset(map, map) :: {map, map}
-  defp apply_changeset(oldstate, changeset) do
-    newstate = Map.merge(oldstate, changeset)
-    {newstate, changeset}
+  defp apply_changeset(map, requested) do
+    changed = :maps.filter(&(map[&1] != &2), requested)
+    {changed, Map.merge(map, changed)}
   end
 
   defp notify(subscribers, message) do

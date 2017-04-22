@@ -30,6 +30,10 @@ defmodule Informant do
     are nonblocking and fast at the expense of more complex subscription and
     publishing.
 
+  ## Concepts
+
+
+
   ## Examples
 
   (See tests for now)
@@ -90,11 +94,15 @@ defmodule Informant do
   Add a subscription to notifications from all matching sources (current and
   future).
   """
-  @spec subscribe(domain, subscription, Keyword.t) :: {:ok, term}
+  @spec subscribe(domain, subscription, Keyword.t) :: {:ok, pid} | {:error, reason}
   def subscribe(domain, subscription, options \\ []) do
-    Domain.subscribe(domain, subscription, options)
-    for {delegate, source_data} <- Domain.topics_matching_subscription(domain, subscription) do
-      GenServer.cast delegate, {:subscribe, self(), {subscription, options, source_data}}
+    case Domain.subscribe(domain, subscription, options) do
+      {:ok, pid} ->
+        for {delegate, source_data} <- Domain.topics_matching_subscription(domain, subscription) do
+          GenServer.cast delegate, {:subscribe, self(), {subscription, options, source_data}}
+        end
+        {:ok, pid}
+      other -> other
     end
   end
 
@@ -131,7 +139,7 @@ defmodule Informant do
   The notification will always be sent from the process of the delegate.
   """
   @spec update(delegate, changeset, metadata) :: :ok | {:error, reason}
-  def update(delegate, changeset, metadata) do
+  def update(delegate, changeset, metadata \\ nil) do
     GenServer.cast delegate, {:update, changeset, metadata}
   end
 
