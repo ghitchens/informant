@@ -60,23 +60,14 @@ defmodule Informant do
   ## Publisher API
 
   @doc """
-  Publishes a source of state and notifications under as the keys given in `source`,
-  returning delegate (process) associate with that source.
-
-  Returns {:ok, delegate_pid}.
+  Registers the current process under `topic`, optionally declaring
+  initial public state, returning a delegate process for the topic.
 
   ## Example
 
       Informant.publish Nerves.Networking, :settings, "eth0"}, %{
         ip: "192.168.15.2", router: "192.168.15.1", mask: "255.255.255.0"
       }
-
-  ## Internals
-
-  Starts a delegate process, which registers itself under the specified
-  `source` id in Registry.Informant.Sources, and then notifies existing
-  subscribers
-
   """
   @spec publish(domain, topic, Keyword.t) :: {:ok, delegate} | {:error, reason}
   def publish(domain, topic, opts \\ []) do
@@ -174,14 +165,4 @@ defmodule Informant do
     GenServer.call(delegate, {:get, key})
   end
 
-  @doc """
-  Return a delegate if one exists for this domain and topic.
-  """
-  @spec delegate(domain, topic) :: delegate | {:error, :notfound}
-  def delegate(domain, topic) do
-    case Registry.lookup domain, topic do
-      [] -> {:error, :notfound}
-      [{delegate, _topic}] -> delegate
-    end
-  end
 end
