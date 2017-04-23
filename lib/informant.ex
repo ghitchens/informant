@@ -19,6 +19,8 @@ defmodule Informant do
   @type metadata :: any
   @type delegate :: pid
   @type subcriber :: pid
+  @type request :: map
+  @type request_response :: map
 
   alias Informant.Domain
   alias Informant.Delegate
@@ -136,9 +138,27 @@ defmodule Informant do
 
   See also state/1.
   """
+  @spec state(domain, topic) :: map
   def state(domain, topic) when is_atom(domain) do
     Domain.delegate_for_topic(domain, topic)
     |> state()
+  end
+
+  @doc """
+  Make a request of a topic's source.
+
+  Generally this is used to ask a source ot change it's state in some way.
+  Examples might include asking for a network adapter to change it's IP
+  address or an audio player source process to change its volume.
+
+  In order to ensure concurrent locking, the request handled as a
+  GenServer.call/2 of the delegate, which in turn does a GenServer.call/2
+  of the source.
+  """
+  @spec request(domain, topic, request) :: request_response
+  def request(domain, topic, request) when is_atom(domain) do
+    Domain.delegate_for_topic(domain, topic)
+    |> GenServer.call({:request, request})
   end
 
   @doc """

@@ -1,6 +1,7 @@
 defmodule Informant.Delegate do
 
   @moduledoc false
+
   alias Informant.Domain
 
   defmodule State, do: defstruct(
@@ -42,6 +43,7 @@ defmodule Informant.Delegate do
     {:noreply, state}
   end
 
+  # sent by source (only) to update public state of the topic
   def handle_cast({:update, changeset, metadata}, state) do
     case apply_changeset(state.pubstate, changeset) do
       {changes, _} when changes == %{} ->
@@ -53,6 +55,7 @@ defmodule Informant.Delegate do
     end
   end
 
+  # snet by Informant.subscribe to add subscriber
   def handle_cast({:subscribe, subscriber, subargs}, state) do
     if Map.has_key?(state.subscribers, subscriber) do
       {:noreply, state}
@@ -62,6 +65,8 @@ defmodule Informant.Delegate do
     end
   end
 
+  # called by source (only) to set public state of this topic.  Not called
+  # by subscribers.
   def handle_call({:update, changeset, metadata}, _from, state) do
     case apply_changeset(state.pubstate, changeset) do
       {changes, _} when changes == %{} ->
@@ -71,6 +76,16 @@ defmodule Informant.Delegate do
         {:reply, {:changes, changes, new_pubstate}, %{state | pubstate: new_pubstate}}
     end
   end
+
+  # Sequence a request from a subscriber to a source, passing metadata for
+  # this topic along the way.
+  # REVIEW: do we need domain/topic/options in call?
+  def handle_call({:request, request}, from, state) do
+    GenServer.call(state.source_pid, {:request, request, {
+      state.domain, state.topic, [], from}})
+  end
+
+  # called by Informant.state() to get public state of this topic
   def handle_call(:state, _from, state) do
     {:reply, state.pubstate, state}
   end
