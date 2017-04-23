@@ -50,7 +50,6 @@ iex(8)> flush()
 :ok
 ```
 
-
 ## Terminology
 
 Informant uses the following terminology to describe its behavior...
@@ -141,3 +140,14 @@ with the app?  Is it OK to say "nothing", and that domains are created by the th
 This contains a lot of old and outdated thinking (at the bottom) but can possibly be helpful in understanding the decisions made so far for Informant.
 
 See  https://quip.com/XOy8A2xXozGA  
+
+## Credits and History
+
+- @fhunleth - for `Observables` and it's "wildcard" ideas
+- `Elixir.Registry` on which this library builds
+- `[Hub](https://github.com/nerves-project/nerves_hub)` which was one of my first attempts at state distribution in erlang (and subsequent port to elixir).  Lots of lessons learned
+
+## License
+
+Licensed under the Apache License, Version 2.0
+See the LICENSE file for more information.
