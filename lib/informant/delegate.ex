@@ -39,7 +39,7 @@ defmodule Informant.Delegate do
   end
 
   def handle_cast({:inform, message}, state) do
-    notify state.domain, state.topic, state.subscribers, message
+    notify(state.domain, state.topic, state.subscribers, message)
     {:noreply, state}
   end
 
@@ -55,7 +55,7 @@ defmodule Informant.Delegate do
     end
   end
 
-  # snet by Informant.subscribe to add subscriber
+  # Cast by Informant.subscribe to add subscriber
   def handle_cast({:subscribe, subscriber, subargs}, state) do
     if Map.has_key?(state.subscribers, subscriber) do
       {:noreply, state}
@@ -65,29 +65,36 @@ defmodule Informant.Delegate do
     end
   end
 
-  # called by source (only) to set public state of this topic.  Not called
-  # by subscribers.
+  # Invoked by Informant.request/3, this casts the request to the source, and
+  # assumes the source will notify us if it wants to  update.
+  def handle_cast({:request, request}, state) do
+    GenServer.cast(state.source_pid, request_msg(request, state))
+    {:noreply, state}
+  end
+
+  # Invoked by Informant.sync_update/3 to set the public state of this topic
+  # respond with {:changes, changeset, new_public_state}
   def handle_call({:update, changeset, metadata}, _from, state) do
-    case apply_changeset(state.pubstate, changeset) do
-      {changes, _} when changes == %{} ->
-        {:reply, :nochanges}
-      {changes, new_pubstate} ->
-        notify(state.domain, state.topic, state.subscribers, {:changes, changes, metadata})
-        {:reply, {:changes, changes, new_pubstate}, %{state | pubstate: new_pubstate}}
-    end
+    {changes, new_state} = apply_and_notify(changeset, metadata, state)
+    {:reply, {:changes, changes}, new_state}
   end
 
-  # Sequence a request from a subscriber to a source, passing metadata for
-  # this topic along the way.
-  # REVIEW: do we need domain/topic/options in call?
-  def handle_call({:request, request}, from, state) do
-    GenServer.call(state.source_pid, {:request, request, {
-      state.domain, state.topic, [], from}})
-  end
-
-  # called by Informant.state() to get public state of this topic
+  # Called by Informant.state() to get public state of this topic
   def handle_call(:state, _from, state) do
     {:reply, state.pubstate, state}
+  end
+
+  # Invoked by Informant.sync_request/3 to synchronously update the
+  # source, passing the request to the source process, and then
+  # generating a changeset that is returned.
+  def handle_call({:request, request}, _from, state) do
+    GenServer.call(state.source_pid, request_msg(request, state))
+    |> case do
+      {:update, changeset, metadata} ->
+        {changes, new_state} = apply_and_notify(changeset, metadata, state)
+        {:reply, {:changes, changes, metadata}, new_state}
+      other -> raise "#{inspect other}"
+    end
   end
 
   def handle_info({:EXIT, pid, reason}, state) do
@@ -97,18 +104,30 @@ defmodule Informant.Delegate do
 
   ## Helpers
 
-  # Determine which changes in `requested` changes are actually changes
-  # to the given map, return {changed, newmap}.
-  @spec apply_changeset(map, map) :: {map, map}
-  defp apply_changeset(map, requested) do
-    changed = :maps.filter(&(map[&1] != &2), requested)
-    {changed, Map.merge(map, changed)}
+  defp request_msg(request, state) do
+    {:request, request, {state.domain, state.topic}}
   end
 
   defp notify(domain, topic, subscribers, message) do
     for {pid, subscriber_args} <- subscribers do
       send(pid, {:informant, domain, topic, message, subscriber_args})
     end
+  end
+
+  # Apply changeset, send notifications, return {changes, newstate}
+  @spec apply_and_notify(map, map, term) :: {map, term}
+  defp apply_and_notify(changeset, metadata, state) do
+    {changes, new_pubstate} = apply_changeset(state.pubstate, changeset)
+    notify(state.domain, state.topic, state.subscribers, {:changes, changes, metadata})
+    {changes, %{state | pubstate: new_pubstate}}
+  end
+
+  # Determine which changes in `requested` changes are actually changes
+  # to the given map, return {changed, newmap}.
+  @spec apply_changeset(map, map) :: {map, map}
+  defp apply_changeset(map, requested) do
+    changed = :maps.filter(&(map[&1] != &2), requested)
+    {changed, Map.merge(map, changed)}
   end
 
 end

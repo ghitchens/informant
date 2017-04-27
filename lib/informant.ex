@@ -21,6 +21,7 @@ defmodule Informant do
   @type subcriber :: pid
   @type request :: map
   @type request_response :: map
+  @type resultset :: map
 
   alias Informant.Domain
   alias Informant.Delegate
@@ -47,9 +48,9 @@ defmodule Informant do
   end
 
   @doc """
-  Remove the source from the sources directory by asking its delegate to terminate
-  and sending a final notification.   Generally called by the process that published
-  the source.
+  Remove the source from the topic directory by asking its delegate to
+  terminate, sending a final notification to all subscribers.
+  Generally called by the process that published the topic.
   """
   @spec unpublish(delegate) :: :ok | {:error, reason}
   def unpublish(delegate) do
@@ -59,8 +60,7 @@ defmodule Informant do
   ## Subscription API
 
   @doc """
-  Add a subscription to notifications from all matching sources (current and
-  future).
+  Add a subscription to a topic or wildcard matching multiple topics.
   """
   @spec subscribe(domain, subscription, Keyword.t) :: {:ok, pid} | {:error, reason}
   def subscribe(domain, subscription, options \\ []) do
@@ -75,7 +75,7 @@ defmodule Informant do
   end
 
   @doc """
-  Add a subscription to notifications from all matching sources (current and future)
+  Remove an existing subscription.
   """
   @spec unsubscribe(domain, subscription) :: {:ok, term}
   def unsubscribe(domain, subscription) do
@@ -86,9 +86,11 @@ defmodule Informant do
 
   @doc """
   Send a `message` to the mailbox of all processes that subscribe to the
-  specified `source`.  This arrives as {:inform, message} to subscribers.
+  topic represented by `delegate`.  The message will arrive in the following
+  form:
 
-  `source`, can either be a source_spec or a delegate_pid.
+    {:informant, {:inform, message}}
+
   The notification will always be sent from the process of the delegate.
   """
   @spec inform(delegate, message) :: :ok
@@ -99,10 +101,10 @@ defmodule Informant do
   @doc """
   Updates public state for `delegate`, merging `changeset` into the
   delegate's public state cache.   The resulting changes are sent as
-  a notification, along with metadata, to subscribers, in a message of
-  the form:
+  a notification, along with metadata, to subscribers of the delegate's
+  topic, in a message of the form:
 
-    {:inform, {:update, changeset, metadata}}
+    {:informant, {:update, changeset, metadata}}
 
   The notification will always be sent from the process of the delegate.
   """
@@ -112,11 +114,12 @@ defmodule Informant do
   end
 
   @doc """
-  Similar to `update/3`, but blocks and returns the changeset computed by the delegate.
+  Similar to `update/3`, but blocks and returns the changeset computed by the
+  delegate.
 
-  Returns {:changes, changeset, newstate} or {:error, reason}
+  Returns {:changes, resultset} or {:error, reason}
   """
-  @spec update(delegate, changeset, metadata) :: {:changes, changeset, pubstate} | {:error, reason}
+  @spec sync_update(delegate, changeset, metadata) :: {:changes, resultset} | {:error, reason}
   def sync_update(delegate, changeset, metadata) do
     GenServer.call delegate, {:update, changeset, metadata}
   end
@@ -151,19 +154,34 @@ defmodule Informant do
   Examples might include asking for a network adapter to change it's IP
   address or an audio player source process to change its volume.
 
-  In order to ensure concurrent locking, the request handled as a
-  GenServer.call/2 of the delegate, which in turn does a GenServer.call/2
-  of the source.
+  Done as a casted message, so always returns :ok.  If the source changes
+  its public state, due to this request, subscribers are notified.
   """
-  @spec request(domain, topic, request) :: request_response
+  @spec request(domain, topic, request) :: :ok
   def request(domain, topic, request) when is_atom(domain) do
+    Domain.delegate_for_topic(domain, topic)
+    |> GenServer.cast({:request, request})
+  end
+
+  @doc """
+  Make a synchronous request of a topic's source, returning changes..
+
+  Similar to request/4, but returns the resulting chagnes to the
+  source's public state.   In order to ensure proper sequencing,
+  the request handled as a GenServer.call of the delegate, which in turn
+  does a GenServer.call of the source.
+
+  Returns {:changes, changes, metadata}
+  """
+  @spec sync_request(domain, topic, request) :: request_response
+  def sync_request(domain, topic, request) when is_atom(domain) do
     Domain.delegate_for_topic(domain, topic)
     |> GenServer.call({:request, request})
   end
 
   @doc """
-  Return a list of topics and their associated state, allowing wildcards
-  in the topic lookup.
+  Return a list of topics and their associated state, allowing wildcards in the
+  topic lookup.
   REVIEW: parallelism might help here since we could make multiple calls
   """
   @spec lookup(domain, topic) :: [{topic, pubstate}]

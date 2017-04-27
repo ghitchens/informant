@@ -218,4 +218,17 @@ defmodule InformantTest do
     # TODO implement this test properly
   end
 
+  test "request forwards a request to the source" do
+    # setup ourselves as publisher and subscriber
+    assert {:ok, _} = Informant.start_link(RequestTest)
+    assert {:ok, _eth0} = Informant.publish(RequestTest, {:config, "eth0"})
+    assert {:ok, _} = Informant.subscribe(RequestTest, {:config, "eth0"})
+    assert_receive {:informant, RequestTest, {:config, "eth0"}, {:join, _, _}, _}
+
+    # make a request
+    Informant.request(RequestTest, {:config, "eth0"}, :somerequest)
+
+    # Make sure we received the request
+    assert_receive {:"$gen_cast", {:request, :somerequest, {RequestTest, {:config, "eth0"}}}}
+  end
 end

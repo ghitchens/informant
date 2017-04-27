@@ -1,16 +1,23 @@
 # Informant <small>(experimental)</small>
 
-A system for handling local distribution of state and events.
+A system for handling local pub/sub of state and events.
 
-Informant allows Elixir processes (_source processes_) to distribute _public state_ and _events_ by publishing _topics_.  Other processes may _subscribe_ to a topic or a wildcard group of topics, resulting in notifications of matching topic's public state and events being sent to the subscriber's mailbox.  
+Informant allows Elixir processes (_source processes_) to publish _topics_ that
+provide access to _public state_ and _events_. Other processes may _subscribe_
+to a topic or a wildcard group of topics, resulting in notifications of matching
+topic's public state and events being sent to the
+subscriber's mailbox.  
 
-Informant is designed for fast, concurrent event dispatch with proper sequencing and no locks at the expense of slightly slower subscription and publishing.  Source processes incur the cost of a single message send to update their public state, and transactions or event dispatch on a topic do not block any other topics.  
+Informant is designed for fast, concurrent event dispatch with proper sequencing
+and no locks at the expense of slightly slower subscription and publishing.
+Source processes incur the cost of a single message send to update their public
+state, and transactions or event dispatch on a topic do not block any other topics.  
 
 Informant's API is still experimental and subject to frequent change.
 
 ## Example
 
-A taste of usage follows.  Please see test/informant_test.exs for more.
+A taste of usage follows.  Please see `test/informant_test.exs` for more.
 
 ```elixir
 # start the Networking domain
@@ -66,7 +73,7 @@ Informant uses the following terminology to describe its behavior...
 
 **Domain** :: A registry of topics and subscriptions, identified by an atom. All topics, and subscriptions live in some Domain.   For instance, the `{:net, :eth0}` topic may be published in both the `Networking` domain and the `Printers` domain, but they are two distinct topics, and a subscription to one does not imply a subscription to the other.  
 
-**Request** :: A way of asking a topic's source to make a change to its published state.  Because requests are sequenced through the source's delegate, they can update and return modified state in sequence with other notifications.
+**Request** :: A way of asking a topic's source to make a change to its published state.  Requests can be sent either asynchronously (casted) or synchronously.  In the latter case, they are sequenced through the source's delegate, so that a source can respond and update and return modified state in sequence with other notifications.
 
 ## Implementation Characteristics
 
@@ -145,7 +152,7 @@ See  https://quip.com/XOy8A2xXozGA
 
 - @fhunleth - for `Observables` and it's "wildcard" ideas
 - `Elixir.Registry` on which this library builds
-- `[Hub](https://github.com/nerves-project/nerves_hub)` which was one of my first attempts at state distribution in erlang (and subsequent port to elixir).  Lots of lessons learned
+- `[Hub](https://github.com/nerves-project/nerves_hub)` which was one of my first attempts at state coordination in erlang (and subsequent port to elixir).  Lots of lessons learned.
 
 ## License
 
